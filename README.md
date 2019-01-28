@@ -1,5 +1,3 @@
-
-
 # DriveLayer
 Self Driving Car Engineer Nanodegree System Integration Capstone Project
 
@@ -10,4 +8,5 @@ This is team DriveLayer rep for the final project of the Udacity SDC-nd.
 
 
 
-# System Archture 
+# System architecture 
+
