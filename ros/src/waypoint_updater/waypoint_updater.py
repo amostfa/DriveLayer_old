@@ -3,6 +3,8 @@
 import rospy
 from geometry_msgs.msg import PoseStamped
 from styx_msgs.msg import Lane, Waypoint
+from scipy.spatial import KDTree
+import numpy as np
 
 import math
 import numpy as np
@@ -34,76 +36,44 @@ class WaypointUpdater(object):
         rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
 
         # TODO: Add a subscriber for /traffic_waypoint and /obstacle_waypoint below
+        rospy.Subscriber('/traffic_waypoint', Lane, self.traffic_cb)
+        rospy.Subscriber('/obstacle_waypoint', Lane, self.obstacle_cb)
 
 
-        self.final_waypoints_pub = rospy.Publisher('final_waypoints', Lane, queue_size=1)
+        self.final_waypoints_pub = rospy.Publisher('/final_waypoints', Lane, queue_size=1)
 
         # TODO: Add other member variables you need below
-        self.position = None
+
+        self.pose = None
         self.base_waypoints = None
         self.waypoints_2d = None
         self.waypoints_tree = None
 
         self.loop()
-        
 
     def loop(self):
 
-    	rate = rospy.Rate(50)
-    	while not rospy.is_shutdown():
-    		if self.position and self.base_waypoints :
-    			# get closest waypoint
-    			closest_waypoint_idx = self.get_closest_waypoint_id()
-    			self.publish_waypoints(closest_waypoint_idx)
-    		rate.sleep()
-
-
-
-    def get_closest_waypoint_id(self):
-
-    	
-    	position_x = self.position.pose.position.x
-    	position_y = self.position.pose.position.y
-
-    	# get closest waypoint to the car's position
-    	closest_idx = self.waypoints_tree.query([position_x,position_y] , 1)[1]
-
-    	# check if this waypoint is ahead or behind the car
-    	closest_waypoint = self.waypoints_2d[closest_idx]
-    	previous_waypoint = self.waypoints_2d[closest_idx - 1]
-
-    	closest_vect = np.array(closest_waypoint)
-    	previous_vect = np.array(previous_waypoint)
-    	position_vect = np.array([position_x,position_y])
-
-    	val = np.dot(closest_vect - previous_vect , position_vect - closest_vect)
-    	if val > 0 :
-    		# if It's behind the car
-    		closest_idx = (closest_idx + 1)%len(self.waypoints_2d)
-
-    	return closest_idx
-
-
-    def publish_waypoints(self, closest_idx):
-    	msg = Lane()
-    	msg.header = self.base_waypoints.header
-    	msg.waypoints = self.base_waypoints.waypoints[closest_idx : closest_idx + LOOKAHEAD_WPS]
-    	self.final_waypoints_pub.publish(msg)
-
+        pubRate = rospy.Rate(30)
+        while not rospy.is_shutdown():
+            if self.pose and self.base_waypoints:
+            	# get closest waypoint
+                closest_waypoint_idx = self.get_closest_waypoint_id()
+                self.publish_waypoints(closest_waypoint_idx)
+            pubRate.sleep()
 
 
     def pose_cb(self, msg):
         
-        self.position = msg
+        self.pose = msg
+        
 
     def waypoints_cb(self, waypoints):
         
         self.base_waypoints = waypoints
-        if not self.waypoints_2d :
-        	self.waypoints_2d = [ [waypoint.pose.pose.position.x,waypoint.pose.pose.position.y] for waypoint in waypoints.waypoints ]
-        	self.waypoints_tree = KDTree(self.waypoints_2d)
-
-
+        if not self.waypoints_2d:
+            self.waypoints_2d = [[Waypoint.pose.pose.position.x, Waypoint.pose.pose.position.y] for Waypoint in waypoints.waypoints]
+            self.waypoints_tree = KDTree(self.waypoints_2d)
+        
 
     def traffic_cb(self, msg):
         # TODO: Callback for /traffic_waypoint message. Implement
@@ -126,6 +96,45 @@ class WaypointUpdater(object):
             dist += dl(waypoints[wp1].pose.pose.position, waypoints[i].pose.pose.position)
             wp1 = i
         return dist
+
+    
+    def get_closest_waypoint_id(self):
+
+        # car's position 
+        x = self.pose.pose.position.x
+        y = self.pose.pose.position.y
+
+        # get closest waypoint to the car's position
+        closest_id = self.waypoints_tree.query([x,y], 1)[1]
+
+        # check if the closest waypoint is ahead or behind us
+        closest_coord = self.waypoints_2d[closest_id]
+        previous_coord = self.waypoints_2d[closest_id -1]
+
+        # get the hyperplane through closest_coords
+        closest_vect = np.array(closest_coord)
+        previous_vect = np.array(previous_coord)
+        position_vect = np.array([x,y])
+
+        val = np.dot(closest_vect - previous_vect, position_vect - closest_vect)
+
+        if val>0:
+        	# if It's behind the car
+            closest_id = (closest_id + 1) % len(self.waypoints_2d)
+
+        return closest_id
+
+        
+    
+    def publish_waypoints(self, closest_idx):
+        
+        # create a message type
+        msg = Lane()
+        msg.header = self.base_waypoints.header
+        msg.waypoints = self.base_waypoints.waypoints[closest_idx : closest_idx + LOOKAHEAD_WPS]
+
+        self.final_waypoints_pub.publish(msg)
+
 
 
 if __name__ == '__main__':
